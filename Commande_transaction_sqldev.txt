@@ -1,0 +1,140 @@
+//////////////// CREATION BASE DWH  //////////////
+
+CREATE TABLE D_DATE
+(
+  date_PK DATE not null,
+  CONSTRAINT primary_key_date PRIMARY KEY (date_PK)
+);
+
+CREATE TABLE D_METHODE
+(
+  name_methode_PK varchar(35) not null,
+  CONSTRAINT primary_key_methode PRIMARY KEY (name_methode_PK)
+);
+
+CREATE TABLE D_CATEGORY
+(
+  name_category_souscategory_PK varchar(150) not null,
+  CONSTRAINT primary_key_category PRIMARY KEY (name_category_souscategory_PK)
+);
+
+CREATE TABLE D_CREDIT_DEBIT
+(
+  transaction_type_PK varchar(1) not null,
+  label_transaction varchar(10) not null,
+  CONSTRAINT primary_key_credit PRIMARY KEY (transaction_type_PK)
+);
+
+
+CREATE TABLE F_TRANSACTION
+(
+  reference_PK varchar(150)not null,
+  date_FK DATE not null,
+  name_methode_FK varchar(35) not null,
+  name_category_FK varchar(150) not null,
+  transaction_type_FK varchar(1) not null,
+  count_value int,
+
+
+    CONSTRAINT primary_key_trans PRIMARY KEY (reference_PK),
+    CONSTRAINT fk_trans_date FOREIGN KEY (date_FK) REFERENCES D_DATE (date_PK),
+    CONSTRAINT fk_trans_methode FOREIGN KEY (name_methode_FK) REFERENCES D_METHODE (name_methode_PK),
+    CONSTRAINT fk_trans_category FOREIGN KEY (name_category_FK) REFERENCES D_CATEGORY (name_category_souscategory_PK),
+    CONSTRAINT fk_trans_credit FOREIGN KEY (transaction_type_FK) REFERENCES D_CREDIT_DEBIT(transaction_type_PK)
+);
+
+//////////////// FIN CREATION BASE DWH  //////////////
+
+
+//////////////// INSERT BASE DWH  //////////////
+
+/// INSERT INTO D_DATE (DATE_PK)
+    SELECT DISTINCT DATE_COMPTA
+    FROM ODS_TRANSACTION
+
+/// INSERT INTO D_CREDIT_DEBIT(TRANSACTION_TYPE_PK, LABEL_TRANSACTION)VALUES
+    ('D', 'DEBIT'),
+    ('C', 'CREDIT')
+
+/// INSERT INTO D_METHODE (NAME_METHODE_PK)
+    SELECT DISTINCT PAYEMENT_METHODE
+    FROM ODS_TRANSACTION
+
+/// INSERT INTO D_CATEGORY (NAME_CATEGORY_SOUSCATEGORY_PK)
+    SELECT CATEGORIE || SOUSCATERGORY
+    FROM ODS_TRANSACTION
+
+///    INSERT INTO D_CATEGORY (NAME_CATEGORY_SOUSCATEGORY_PK)
+    SELECT DISTINCT UPPER(REPLACE(CATEGORIE||' '||SOUSCATERGORY , ' ', '_'))
+    FROM ODS_TRANSACTION
+
+
+//// insert table F_Transaction
+
+DECLARE
+  v_date_compta DATE;
+  v_reference VARCHAR2(150);
+  v_payement_methode VARCHAR2(35);
+  v_categorie_souscategorie VARCHAR2(150);
+  v_debit NUMBER(10,2);
+  v_credit NUMBER(10,2);
+  v_transaction_type VARCHAR2(1);
+BEGIN
+  FOR rec IN (SELECT DATE_COMPTA, REFERENCE, PAYEMENT_METHODE, CATEGORIE, SOUSCATERGORY, DEBIT, CREDIT FROM ODS_TRANSACTION) LOOP
+    v_date_compta := TO_DATE(rec.DATE_COMPTA, 'DD/MM/YY');
+
+    v_payement_methode := rec.PAYEMENT_METHODE;
+
+    v_categorie_souscategorie := UPPER(REPLACE(rec.CATEGORIE || ' ' || rec.SOUSCATERGORY,  ' ', '_'));
+
+     IF rec.CREDIT = '0' THEN
+  v_debit := rec.DEBIT;
+  v_credit := null;
+  v_transaction_type := 'D';
+    ELSIF rec.DEBIT = '0' THEN
+  v_debit := null;
+  v_credit := rec.CREDIT;
+  v_transaction_type := 'C';
+END IF;
+
+
+    INSERT INTO F_TRANSACTION (reference_PK, date_FK, name_methode_FK, name_category_FK, transaction_type_FK, count_value)
+    VALUES (rec.REFERENCE, v_date_compta, v_payement_methode, v_categorie_souscategorie, v_transaction_type, COALESCE(v_debit, v_credit));
+  END LOOP;
+END;
+
+
+////////////////////////////////////////////////////////////////
+///////////////////// Réponse au question  /////////////////////
+////////////////////////////////////////////////////////////////
+
+
+Quelle est le poste de dépense le plus élevé
+
+///
+    SELECT name_category_FK, SUM(count_value)
+    FROM F_TRANSACTION
+    WHERE transaction_type_FK = 'D'
+    GROUP BY name_category_FK
+    ORDER BY SUM(count_value) ASC
+    FETCH FIRST 1 ROWS ONLY
+/// => TRANSACTION_EPCLUE_VIREMENT_INTERNE = -115139,91
+
+Quelle est la plus grosse sous catégorie de source de revenue ?
+
+///
+    SELECT name_category_FK, SUM(count_value) INTO v_subcategory, v_max_income
+    FROM F_TRANSACTION
+    WHERE transaction_type_FK = 'C' -- Assurez-vous que 'C' est le code pour les sources de revenu
+    GROUP BY name_category_FK
+    ORDER BY SUM(count_value) DESC
+    FETCH FIRST 1 ROWS ONLY;
+///  => 'A_CATEGORISER_-_RENTREE_D'ARGENT_VIREMENT_RECU_-_A_CATEGORISER' = 81246,61
+
+Quelles est l’évolution du solde client à travers le temps ?
+
+///
+SELECT DATE_fk, count_value, transaction_type_fk
+FROM F_transaction
+order by date_fk
+/// => voir diagramme
